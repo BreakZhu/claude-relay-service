@@ -293,6 +293,9 @@ curl -fsSL https://pincc.ai/crs-compose.sh -o crs-compose.sh && chmod +x crs-com
 
 #### 第二步：启动
 ```bash
+
+docker build -t claude-relay-service:local .
+
 docker-compose up -d
 ```
 
@@ -318,6 +321,7 @@ docker-compose.yml 已包含：
 - `ADMIN_USERNAME`: 管理员用户名（不设置则自动生成）
 - `ADMIN_PASSWORD`: 管理员密码（不设置则自动生成）
 - `LOG_LEVEL`: 日志级别（默认：info）
+- 注意检查data/init.json文件是否存在，如存在则为初始化用户和密码
 - 更多配置项请参考 `.env.example` 文件
 
 ### 管理员凭据获取方式
