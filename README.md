@@ -155,7 +155,7 @@ $ crs install
 
 # 会依次询问：
 安装目录 (默认: ~/claude-relay-service):
-服务端口 (默认: 3000): 8080
+服务端口 (默认: 3808): 8080
 Redis 地址 (默认: localhost):
 Redis 端口 (默认: 6379):
 Redis 密码 (默认: 无密码):
@@ -247,7 +247,7 @@ REDIS_PASSWORD=
 ```javascript
 module.exports = {
   server: {
-    port: 3000, // 服务端口，可以改
+    port: 3808, // 服务端口，可以改
     host: '0.0.0.0' // 不用改
   },
   redis: {
@@ -506,9 +506,10 @@ docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
 3) 如果本地没有该镜像，先拉取再重打标签推送：
 
 ```powershell
-docker pull redis:7-alpine
-docker tag redis:7-alpine acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
-docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+docker images | findstr redis   # 确认本地没有 redis:7-alpine 镜像
+docker pull redis:7-alpine # 拉取官方 Redis 镜像
+docker tag redis:7-alpine acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine # 重打标签
+docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine # 推送 ACR
 ```
 
 #### 在 Linux 服务器从 ACR 拉取并运行 Redis
@@ -592,7 +593,7 @@ redis:
 
 ### 1. 打开管理界面
 
-浏览器访问：`http://你的服务器IP:3000/web`
+浏览器访问：`http://你的服务器IP:3808/web`
 
 管理员账号：
 
@@ -748,7 +749,7 @@ Cherry Studio支持多种AI服务的接入，下面是不同账号类型的详�
 
 ```
 # API地址
-http://你的服务器:3000/claude
+http://你的服务器:3808/claude
 
 # 模型ID示例
 claude-sonnet-4-5-20250929 # Claude Sonnet 4.5
@@ -757,14 +758,14 @@ claude-opus-4-20250514     # Claude Opus 4
 
 配置步骤：
 - 供应商类型选择"Anthropic"
-- API地址填入：`http://你的服务器:3000/claude`
+- API地址填入：`http://你的服务器:3808/claude`
 - API Key填入：后台创建的API密钥（cr_开头）
 
 **2. Gemini账号接入：**
 
 ```
 # API地址
-http://你的服务器:3000/gemini
+http://你的服务器:3808/gemini
 
 # 模型ID示例
 gemini-2.5-pro             # Gemini 2.5 Pro
@@ -772,14 +773,14 @@ gemini-2.5-pro             # Gemini 2.5 Pro
 
 配置步骤：
 - 供应商类型选择"Gemini"
-- API地址填入：`http://你的服务器:3000/gemini`
+- API地址填入：`http://你的服务器:3808/gemini`
 - API Key填入：后台创建的API密钥（cr_开头）
 
 **3. Codex接入：**
 
 ```
 # API地址
-http://你的服务器:3000/openai
+http://你的服务器:3808/openai
 
 # 模型ID（固定）
 gpt-5                      # Codex使用固定模型ID
@@ -787,17 +788,17 @@ gpt-5                      # Codex使用固定模型ID
 
 配置步骤：
 - 供应商类型选择"Openai-Response"
-- API地址填入：`http://你的服务器:3000/openai`
+- API地址填入：`http://你的服务器:3808/openai`
 - API Key填入：后台创建的API密钥（cr_开头）
 - **重要**：Codex只支持Openai-Response标准
 
 
 **Cherry Studio 地址格式重要说明：**
 
-- ✅ **推荐格式**：`http://你的服务器:3000/claude`（不加结尾 `/`，让 Cherry Studio 自动加上 v1）
-- ✅ **等效格式**：`http://你的服务器:3000/claude/v1/`（手动指定 v1 并加结尾 `/`）
+- ✅ **推荐格式**：`http://你的服务器:3808/claude`（不加结尾 `/`，让 Cherry Studio 自动加上 v1）
+- ✅ **等效格式**：`http://你的服务器:3808/claude/v1/`（手动指定 v1 并加结尾 `/`）
 - 💡 **说明**：这两种格式在 Cherry Studio 中是完全等效的
-- ❌ **错误格式**：`http://你的服务器:3000/claude/`（单独的 `/` 结尾会被 Cherry Studio 忽略 v1 版本）
+- ❌ **错误格式**：`http://你的服务器:3808/claude/`（单独的 `/` 结尾会被 Cherry Studio 忽略 v1 版本）
 
 #### 其他第三方工具接入
 
@@ -1025,7 +1026,7 @@ Caddy 会自动管理 HTTPS，因此可以将服务限制在本地进行监听�
 // config/config.js
 module.exports = {
   server: {
-    port: 3000,
+    port: 3808,
     host: '127.0.0.1' // 只监听本地
   }
 }
@@ -1053,7 +1054,7 @@ Details 配置如下：
 | Domain Names          | relay.example.com       |
 | Scheme                | http                    |
 | Forward Hostname / IP | 192.168.0.1 (docker 机器 IP) |
-| Forward Port          | 3000                    |
+| Forward Port          | 3808                    |
 | Block Common Exploits | ☑️                      |
 | Websockets Support    | ❌ **关闭**                |
 | Cache Assets          | ❌ **关闭**                |
