@@ -193,6 +193,9 @@ sudo apt-get install -y nodejs
 sudo apt update
 sudo apt install redis-server
 sudo systemctl start redis-server
+
+
+redis-server /etc/redis/redis.conf --daemonize no --loglevel verbose
 ```
 
 **CentOS/RHEL用户：**
@@ -943,3 +946,4 @@ proxy_request_buffering off;
 **🤝 有问题欢迎提Issue，有改进建议欢迎PR**
 
 </div>
+
