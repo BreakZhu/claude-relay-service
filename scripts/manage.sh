@@ -18,7 +18,7 @@ DEFAULT_INSTALL_DIR="$HOME/claude-relay-service"
 DEFAULT_REDIS_HOST="localhost"
 DEFAULT_REDIS_PORT="6379"
 DEFAULT_REDIS_PASSWORD=""
-DEFAULT_APP_PORT="3000"
+DEFAULT_APP_PORT="3808"
 
 # 全局变量
 INSTALL_DIR=""
@@ -376,7 +376,7 @@ install_service() {
     # 询问服务端口
     echo -n "服务端口 (默认: $DEFAULT_APP_PORT): "
     read input
-    APP_PORT=${input:-$DEFAULT_APP_PORT}
+APP_PORT=${input:-$DEFAULT_APP_PORT}
     
     # 检查端口是否被占用
     if check_port $APP_PORT; then
@@ -1280,7 +1280,7 @@ show_status() {
     if [ -z "$actual_port" ] && [ -f "$APP_DIR/.env" ]; then
         actual_port=$(grep "^PORT=" "$APP_DIR/.env" 2>/dev/null | cut -d'=' -f2)
     fi
-    actual_port=${actual_port:-3000}
+actual_port=${actual_port:-3808}
     
     # 检查进程
     local pid=$(pgrep -f "node.*src/app.js" | head -1)
@@ -1382,7 +1382,7 @@ show_menu() {
         if [ -z "$actual_port" ] && [ -f "$APP_DIR/.env" ]; then
             actual_port=$(grep "^PORT=" "$APP_DIR/.env" 2>/dev/null | cut -d'=' -f2)
         fi
-        actual_port=${actual_port:-3000}
+actual_port=${actual_port:-3808}
         
         # 检查服务状态
         local pid=$(pgrep -f "node.*src/app.js" | head -1)

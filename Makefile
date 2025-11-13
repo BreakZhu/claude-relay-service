@@ -175,7 +175,7 @@ check-config:
 
 health-check:
 	@echo "🏥 执行健康检查..."
-	@curl -s http://localhost:3000/health || echo "❌ 服务未运行或不可访问"
+	@curl -s http://localhost:3808/health || echo "❌ 服务未运行或不可访问"
 
 # 快速启动组合命令
 quick-start: setup dev
@@ -192,8 +192,8 @@ dev-full: install install-web build-web setup dev
 # 完整部署流程
 deploy: clean install install-web build-web setup test lint docker-up
 	@echo "🎉 部署完成！"
-	@echo "访问 Web 管理界面: http://localhost:3000/web"
-	@echo "API 端点: http://localhost:3000/api/v1/messages"
+	@echo "访问 Web 管理界面: http://localhost:3808/web"
+	@echo "API 端点: http://localhost:3808/api/v1/messages"
 
 # 生产部署准备
 production-build: clean install install-web build-web

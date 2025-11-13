@@ -98,7 +98,7 @@ web/admin-spa/
 
 ```bash
 # 后端服务器地址
-VITE_API_TARGET=http://74.48.134.98:3000
+VITE_API_TARGET=http://74.48.134.98:3808
 
 # HTTP 代理配置
 VITE_HTTP_PROXY=http://127.0.0.1:7890
@@ -129,14 +129,14 @@ A: 这是正常的。应用配置在 `/web/admin/` 路径下，必须访问完�
 
 ### Q: 登录时 API 请求失败（500错误）？
 A: 
-1. **确保主服务运行**：Claude Relay Service 必须运行在 http://localhost:3000
-2. **检查代理配置**：Vite 会自动代理 `/admin` 和 `/api` 请求到 3000 端口
+1. **确保主服务运行**：Claude Relay Service 必须运行在 http://localhost:3808
+2. **检查代理配置**：Vite 会自动代理 `/admin` 和 `/api` 请求到 3808 端口
 3. **重启开发服务器**：如果修改了配置，需要重启 `npm run dev`
 4. **测试代理**：运行 `node test-proxy.js` 检查代理是否正常工作
 
 ### Q: 如何处理开发和生产环境的 API 配置？
 A: 
-- **开发环境**：使用 Vite 代理，自动转发请求到 localhost:3000
+- **开发环境**：使用 Vite 代理，自动转发请求到 localhost:3808
 - **生产环境**：直接使用相对路径 `/admin`，无需配置
 - 两种环境都使用相同的 API 路径，通过环境变量自动切换
 

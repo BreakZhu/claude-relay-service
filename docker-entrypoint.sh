@@ -35,7 +35,7 @@ echo "✅ 环境配置已就绪"
 echo "   JWT_SECRET: [已设置]"
 echo "   ENCRYPTION_KEY: [已设置]"
 echo "   REDIS_HOST: ${REDIS_HOST:-localhost}"
-echo "   PORT: ${PORT:-3000}"
+echo "   PORT: ${PORT:-3808}"
 
 # 检查是否需要初始化
 if [ ! -f "/app/data/init.json" ]; then

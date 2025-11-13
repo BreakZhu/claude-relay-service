@@ -194,8 +194,9 @@ sudo apt update
 sudo apt install redis-server
 sudo systemctl start redis-server
 
-
 redis-server /etc/redis/redis.conf --daemonize no --loglevel verbose
+
+
 ```
 
 **CentOS/RHEL用户：**
@@ -300,6 +301,7 @@ curl -fsSL https://pincc.ai/crs-compose.sh -o crs-compose.sh && chmod +x crs-com
 docker build -t claude-relay-service:local .
 
 docker-compose up -d
+
 ```
 
 ### Docker Compose 配置
@@ -311,6 +313,242 @@ docker-compose.yml 已包含：
 - ✅ Redis数据库
 - ✅ 健康检查
 - ✅ 自动重启
+
+### 使用阿里云容器镜像服务（ACR）推送与部署（推荐）
+
+以下步骤演示如何在 Windows 本机构建并推送镜像到阿里云 ACR，然后在一台 Linux 服务器的 Docker 环境进行部署。请根据你的实际命名空间与仓库名替换示例中的 `blink/claude-relay-service`。
+
+#### 一、在 Windows 本机构建并推送到 ACR
+
+1) 登录 ACR（PowerShell）：
+
+```powershell
+docker login acr-blink-registry.cn-beijing.cr.aliyuncs.com -u 北京正和岛
+pwd 
+
+# 按提示输入密码或令牌，成功后显示 Login Succeeded
+```
+
+2) 构建镜像（建议指定平台 linux/amd64，确保与服务器架构兼容）：
+
+```powershell
+cd D:\workspace\claude-relay-service
+docker build --platform linux/amd64 -t acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.0 -f Dockerfile .
+```
+
+3) 可选：打 latest 标签，便于滚动升级：
+
+```powershell
+docker tag acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.0 acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:latest
+```
+
+
+4) 推送到 ACR：
+
+```powershell
+docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.0
+# 如打了 latest，同步推送：
+docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:latest
+```
+
+#### 二、在 Linux 服务器拉取并部署
+
+1) 登录 ACR（Linux）：
+
+```bash
+docker login acr-blink-registry.cn-beijing.cr.aliyuncs.com -u <你的用户名>
+```
+
+2) 拉取镜像：
+
+```bash
+docker pull acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.0
+```
+
+3) 方式 A（推荐）：使用 Docker Compose 一键编排
+
+```bash
+# 准备挂载目录
+sudo mkdir -p /opt/claude-relay/{logs,data,redis_data}
+
+# 在 /opt/claude-relay 新建 docker-compose.yml（示例）
+# 或者vim 直接添加
+cat > /opt/claude-relay/docker-compose.yml <<'EOF'
+version: '3.8'
+services:
+  claude-relay:
+    image: acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.0
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:3808:3808"
+    environment:
+      - NODE_ENV=production
+      - PORT=3808
+      - HOST=0.0.0.0
+      - JWT_SECRET=<请填写强随机字符串>
+      - ENCRYPTION_KEY=<请填写强随机字符串>
+      - ADMIN_USERNAME=<可选>
+      - ADMIN_PASSWORD=<可选>
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - DEFAULT_TOKEN_LIMIT=1000000
+      - LOG_LEVEL=info
+      - TIMEZONE_OFFSET=8
+    volumes:
+      - /opt/claude-relay/logs:/app/logs
+      - /opt/claude-relay/data:/app/data
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3808/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    volumes:
+      - /opt/claude-relay/redis_data:/data
+    command: redis-server --save 60 1 --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+EOF
+
+# 启动服务（根据你的环境使用 docker compose 或 docker-compose）
+cd /opt/claude-relay && docker compose up -d || docker-compose up -d
+
+# 验证健康状态
+curl -f http://127.0.0.1:3808/health
+```
+
+4) 方式 B：纯 Docker 命令部署
+
+```bash
+# 创建网络与持久化目录
+sudo docker network create claude-relay-net || true
+sudo mkdir -p /opt/claude-relay/{logs,data,redis_data}
+
+# 运行 Redis（同网络）
+docker run -d --name redis --network claude-relay-net -v /opt/claude-relay/redis_data:/data  acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine  redis-server --save 60 1 --appendonly yes --appendfsync everysec
+
+# 运行应用容器（指定必要环境变量与端口映射）
+docker run -d --name claude-relay \
+  --network claude-relay-net \
+  -p 0.0.0.0:3808:3808 \
+  -v /opt/claude-relay/logs:/app/logs \
+  -v /opt/claude-relay/data:/app/data \
+  -e NODE_ENV=production \
+  -e PORT=3808 \
+  -e HOST=0.0.0.0 \
+  -e JWT_SECRET="<强随机字符串>" \
+  -e ENCRYPTION_KEY="<强随机字符串>" \
+  -e REDIS_HOST="redis" \
+  -e REDIS_PORT="6379" \
+  acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.0
+
+# 验证健康状态与日志
+curl -f http://127.0.0.1:3808/health || true
+docker logs -f claude-relay
+```
+
+5) 升级与回滚
+
+```bash
+# 拉取新版本（例如 v1.0.1）
+docker pull acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.1
+
+# Compose 部署滚动替换
+docker compose up -d || docker-compose up -d
+
+# 纯 Docker：停止并删除旧容器后，用新镜像重新运行
+docker stop claude-relay && docker rm claude-relay
+docker run ... acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/claude-relay-service:v1.0.1
+```
+
+6) 注意事项
+
+- 必填环境变量：`JWT_SECRET` 与 `ENCRYPTION_KEY`，建议使用 32 位以上强随机字符串。
+- Redis 访问：容器内 `localhost` 指向自身，不会指向宿主机。使用同一编排网络时将 `REDIS_HOST` 设置为服务名 `redis`；连接外部 Redis 时请改为外部地址并设置 `REDIS_PASSWORD`/`REDIS_ENABLE_TLS`（如需）。
+- 架构兼容：Windows 构建时使用 `--platform linux/amd64`，避免在 x86_64 服务器上运行失败。
+- 暴露端口：默认映射 `3808`；生产建议通过 Nginx/Traefik 反向代理，对公网隐藏服务端口。
+- 健康检查：镜像内置 `HEALTHCHECK`，路径为 `http://localhost:3808/health`，故 Compose 示例也采用相同检查。
+- 数据持久化：建议把 `logs` 与 `data` 目录挂载到宿主机，避免容器重建导致数据丢失。
+
+### Redis 镜像推送到 ACR 与服务器拉取
+
+为避免生产环境直接访问 Docker Hub，可将 Redis 镜像推送到你自己的 ACR 仓库，并在服务器端从 ACR 拉取。本文统一使用仓库地址：
+
+acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+
+#### 在 Windows（Docker Desktop）推送 Redis 到 ACR
+
+1) 登录 ACR：
+
+```powershell
+docker login acr-blink-registry.cn-beijing.cr.aliyuncs.com -u <你的用户名>
+```
+
+2) 如果本地已存在官方 Redis 镜像（redis:7-alpine），直接重打标签并推送：
+
+```powershell
+docker tag redis:7-alpine acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+```
+
+3) 如果本地没有该镜像，先拉取再重打标签推送：
+
+```powershell
+docker pull redis:7-alpine
+docker tag redis:7-alpine acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+docker push acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+```
+
+#### 在 Linux 服务器从 ACR 拉取并运行 Redis
+
+1) 登录 ACR：
+
+```bash
+docker login acr-blink-registry.cn-beijing.cr.aliyuncs.com -u <你的用户名>
+```
+
+2) 拉取 Redis 镜像：
+
+```bash
+docker pull acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+```
+
+3) 运行 Redis（与应用同网络示例）：
+
+```bash
+docker run -d --name redis --network claude-relay-net \
+  --restart unless-stopped \
+  -v /opt/claude-relay/redis_data:/data \
+  acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine \
+  redis-server --save 60 1 --appendonly yes --appendfsync everysec
+```
+
+4) 在 Compose 中使用 ACR 的 Redis 镜像（已在本文示例中体现）：
+
+```yaml
+redis:
+  image: acr-blink-registry.cn-beijing.cr.aliyuncs.com/blink/redis:7-alpine
+  restart: unless-stopped
+  expose:
+    - "6379"
+  volumes:
+    - /opt/claude-relay/redis_data:/data
+  command: redis-server --save 60 1 --appendonly yes --appendfsync everysec
+```
+
+> 提示：如你的服务器网络必须走代理，请确保 ACR 域名已加入 Docker 的 NO_PROXY 或代理可用，否则拉取可能失败。
 
 ### 环境变量说明
 
@@ -399,7 +637,7 @@ docker-compose.yml 已包含：
 默认使用标准 Claude 账号池：
 
 ```bash
-export ANTHROPIC_BASE_URL="http://127.0.0.1:3000/api/" # 根据实际填写你服务器的ip地址或者域名
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3808/api/" # 根据实际填写你服务器的ip地址或者域名
 export ANTHROPIC_AUTH_TOKEN="后台创建的API密钥"
 ```
 
@@ -419,7 +657,7 @@ export ANTHROPIC_AUTH_TOKEN="后台创建的API密钥"
 
 ```bash
 GEMINI_MODEL="gemini-2.5-pro"
-GOOGLE_GEMINI_BASE_URL="http://127.0.0.1:3000/gemini" # 根据实际填写你服务器的ip地址或者域名
+GOOGLE_GEMINI_BASE_URL="http://127.0.0.1:3808/gemini" # 根据实际填写你服务器的ip地址或者域名
 GEMINI_API_KEY="后台创建的API密钥"  # 使用相同的API密钥即可
 ```
 **使用 Claude Code：**
@@ -447,7 +685,7 @@ preferred_auth_method = "apikey"
 
 [model_providers.crs]
 name = "crs"
-base_url = "http://127.0.0.1:3000/openai"  # 根据实际填写你服务器的ip地址或者域名
+base_url = "http://127.0.0.1:3808/openai"  # 根据实际填写你服务器的ip地址或者域名
 wire_api = "responses"
 requires_openai_auth = true
 env_key = "CRS_OAI_KEY"
@@ -479,7 +717,7 @@ Droid CLI 读取 `~/.factory/config.json`。可以在该文件中添加自定义
     {
       "model_display_name": "Sonnet 4.5 [crs]",
       "model": "claude-sonnet-4-5-20250929",
-      "base_url": "http://127.0.0.1:3000/droid/claude",
+      "base_url": "http://127.0.0.1:3808/droid/claude",
       "api_key": "后台创建的API密钥",
       "provider": "anthropic",
       "max_tokens": 8192
@@ -487,7 +725,7 @@ Droid CLI 读取 `~/.factory/config.json`。可以在该文件中添加自定义
     {
       "model_display_name": "GPT5-Codex [crs]",
       "model": "gpt-5-codex",
-      "base_url": "http://127.0.0.1:3000/droid/openai",
+      "base_url": "http://127.0.0.1:3808/droid/openai",
       "api_key": "后台创建的API密钥",
       "provider": "openai",
       "max_tokens": 16384
@@ -496,7 +734,7 @@ Droid CLI 读取 `~/.factory/config.json`。可以在该文件中添加自定义
 }
 ```
 
-> 💡 将示例中的 `http://127.0.0.1:3000` 替换为你的服务域名或公网地址，并写入后台生成的 API 密钥（cr_ 开头）。
+> 💡 将示例中的 `http://127.0.0.1:3808` 替换为你的服务域名或公网地址，并写入后台生成的 API 密钥（cr_ 开头）。
 
 ### 5. 第三方工具API接入
 
@@ -602,8 +840,8 @@ npm run service:stop
 
 ### 监控使用情况
 
-- **Web界面**: `http://你的域名:3000/web` - 查看使用统计
-- **健康检查**: `http://你的域名:3000/health` - 确认服务正常
+ - **Web界面**: `http://你的域名:3808/web` - 查看使用统计
+ - **健康检查**: `http://你的域名:3808/health` - 确认服务正常
 - **日志文件**: `logs/` 目录下的各种日志文件
 
 ### 升级指南
@@ -743,7 +981,7 @@ sudo yum install caddy
 ```caddy
 your-domain.com {
     # 反向代理到本地服务
-    reverse_proxy 127.0.0.1:3000 {
+    reverse_proxy 127.0.0.1:3808 {
         # 支持流式响应或 SSE
         flush_interval -1
 

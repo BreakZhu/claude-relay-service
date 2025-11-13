@@ -238,7 +238,7 @@ Now you can replace the official API with your own service:
 
 **Set environment variables:**
 ```bash
-export ANTHROPIC_BASE_URL="http://127.0.0.1:3000/api/" # Fill in your server's IP address or domain according to actual situation
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3808/api/" # Fill in your server's IP address or domain according to actual situation
 export ANTHROPIC_AUTH_TOKEN="API key created in the backend"
 ```
 
@@ -269,8 +269,8 @@ npm run service:stop
 
 ### Monitor Usage
 
-- **Web Interface**: `http://your-domain:3000/web` - View usage statistics
-- **Health Check**: `http://your-domain:3000/health` - Confirm service is normal
+- **Web Interface**: `http://your-domain:3808/web` - View usage statistics
+- **Health Check**: `http://your-domain:3808/health` - Confirm service is normal
 - **Log Files**: Various log files in `logs/` directory
 
 ### Upgrade Guide
@@ -360,7 +360,7 @@ Edit `/etc/caddy/Caddyfile`:
 ```caddy
 your-domain.com {
     # Reverse proxy to local service
-    reverse_proxy 127.0.0.1:3000 {
+    reverse_proxy 127.0.0.1:3808 {
         # Support streaming responses or SSE
         flush_interval -1
 

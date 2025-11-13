@@ -14,7 +14,7 @@ echo "========================================"
 
 # 获取服务配置
 SERVICE_HOST=${HOST:-127.0.0.1}
-SERVICE_PORT=${PORT:-3000}
+SERVICE_PORT=${PORT:-3808}
 
 # 如果HOST是0.0.0.0，客户端应该连接localhost
 if [ "$SERVICE_HOST" = "0.0.0.0" ]; then

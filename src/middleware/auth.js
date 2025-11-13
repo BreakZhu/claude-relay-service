@@ -966,7 +966,12 @@ const corsMiddleware = (req, res, next) => {
     'http://localhost:3000',
     'https://localhost:3000',
     'http://127.0.0.1:3000',
-    'https://127.0.0.1:3000'
+    'https://127.0.0.1:3000',
+    // 新默认端口 3808（保留 3000 兼容）
+    'http://localhost:3808',
+    'https://localhost:3808',
+    'http://127.0.0.1:3808',
+    'https://127.0.0.1:3808'
   ]
 
   // 🆕 检查是否为Chrome插件请求

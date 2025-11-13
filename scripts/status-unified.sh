@@ -24,7 +24,7 @@ echo "========================================"
 
 # 获取服务配置
 SERVICE_HOST=${HOST:-127.0.0.1}
-SERVICE_PORT=${PORT:-3000}
+SERVICE_PORT=${PORT:-3808}
 
 if [ "$SERVICE_HOST" = "0.0.0.0" ]; then
     SERVICE_HOST="127.0.0.1"
