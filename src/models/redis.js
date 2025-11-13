@@ -58,36 +58,143 @@ class RedisClient {
 
   async connect() {
     try {
-      this.client = new Redis({
-        host: config.redis.host,
-        port: config.redis.port,
-        password: config.redis.password,
-        db: config.redis.db,
-        retryDelayOnFailover: config.redis.retryDelayOnFailover,
-        maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
-        lazyConnect: config.redis.lazyConnect,
-        tls: config.redis.enableTLS ? {} : false
-      })
+      // 🔥 添加连接超时保护
+      const connectTimeout = config.redis.connectTimeout || 10000
+      logger.info(`🔄 Connecting to Redis at ${config.redis.host}:${config.redis.port}...`)
+      logger.info(`⏱️  Connection timeout: ${connectTimeout}ms`)
 
-      this.client.on('connect', () => {
-        this.isConnected = true
-        logger.info('🔗 Redis connected successfully')
-      })
+      // 🔥 关键修复：不使用lazyConnect，避免在detached进程中挂起
+      // 创建Promise包装整个连接过程，确保超时能正常工作
+      const createConnection = () => {
+        return new Promise((resolve, reject) => {
+          let resolved = false
+          let timeoutId = null
 
-      this.client.on('error', (err) => {
-        this.isConnected = false
-        logger.error('❌ Redis connection error:', err)
-      })
+          // 设置超时
+          timeoutId = setTimeout(() => {
+            if (!resolved) {
+              resolved = true
+              const error = new Error(`Redis connection timeout after ${connectTimeout}ms`)
+              logger.error('⏰ Redis connection timeout!')
+              reject(error)
+            }
+          }, connectTimeout)
 
-      this.client.on('close', () => {
-        this.isConnected = false
-        logger.warn('⚠️  Redis connection closed')
-      })
+          try {
+            // 不使用lazyConnect，让ioredis自动连接
+            this.client = new Redis({
+              host: config.redis.host,
+              port: config.redis.port,
+              password: config.redis.password,
+              db: config.redis.db,
+              retryDelayOnFailover: config.redis.retryDelayOnFailover,
+              maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
+              lazyConnect: false, // 🔥 关键：改为false，自动连接
+              tls: config.redis.enableTLS ? {} : false,
+              connectTimeout: connectTimeout,
+              // 🔥 添加重试策略
+              retryStrategy(times) {
+                const delay = Math.min(times * 50, 2000)
+                logger.warn(`⚠️  Redis connection attempt ${times}, retry in ${delay}ms`)
+                if (times > 5) {
+                  // 最多重试5次
+                  return null
+                }
+                return delay
+              }
+            })
 
-      await this.client.connect()
+            // 监听ready事件（连接成功并准备好）
+            this.client.once('ready', async () => {
+              if (resolved) return
+              resolved = true
+              clearTimeout(timeoutId)
+
+              this.isConnected = true
+              logger.success('✅ Redis is ready to accept commands')
+
+              // 验证连接
+              try {
+                await this.client.ping()
+                logger.success('✅ Redis connection verified with PING')
+                resolve(this.client)
+              } catch (pingError) {
+                logger.error('❌ Redis PING failed:', pingError.message)
+                reject(pingError)
+              }
+            })
+
+            // 监听error事件
+            this.client.once('error', (err) => {
+              if (resolved) return
+              resolved = true
+              clearTimeout(timeoutId)
+
+              this.isConnected = false
+              logger.error('❌ Redis connection error:', {
+                message: err.message,
+                code: err.code,
+                errno: err.errno
+              })
+              reject(err)
+            })
+
+            // 持续监听error事件（连接后的错误）
+            this.client.on('error', (err) => {
+              this.isConnected = false
+              logger.error('❌ Redis error:', {
+                message: err.message,
+                code: err.code
+              })
+            })
+
+            this.client.on('close', () => {
+              this.isConnected = false
+              logger.warn('⚠️  Redis connection closed')
+            })
+
+            this.client.on('reconnecting', () => {
+              logger.info('🔄 Reconnecting to Redis...')
+            })
+
+            this.client.on('connect', () => {
+              logger.info('🔗 Redis connected, waiting for ready...')
+            })
+          } catch (error) {
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeoutId)
+              reject(error)
+            }
+          }
+        })
+      }
+
+      // 执行连接
+      await createConnection()
+
       return this.client
     } catch (error) {
-      logger.error('💥 Failed to connect to Redis:', error)
+      logger.error('💥 Failed to connect to Redis:', {
+        message: error.message,
+        host: config.redis.host,
+        port: config.redis.port,
+        stack: error.stack
+      })
+
+      // 🔥 强制刷新日志确保错误被记录
+      await logger.flush()
+
+      // 🔥 清理失败的连接
+      if (this.client) {
+        try {
+          this.client.disconnect()
+        } catch (quitError) {
+          // 忽略quit错误
+        }
+        this.client = null
+      }
+
       throw error
     }
   }

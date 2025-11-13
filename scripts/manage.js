@@ -9,6 +9,7 @@ const PID_FILE = path.join(__dirname, '..', 'claude-relay-service.pid')
 const LOG_FILE = path.join(__dirname, '..', 'logs', 'service.log')
 const ERROR_LOG_FILE = path.join(__dirname, '..', 'logs', 'service-error.log')
 const APP_FILE = path.join(__dirname, '..', 'src', 'app.js')
+const STARTUP_MARKER_FILE = path.join(__dirname, '..', '.startup-ready') // 🔥 新增启动标记文件
 
 class ServiceManager {
   constructor() {
@@ -58,8 +59,13 @@ class ServiceManager {
         fs.unlinkSync(PID_FILE)
         console.log('🗑️  已清理PID文件')
       }
+      // 🔥 同时清理启动标记文件
+      if (fs.existsSync(STARTUP_MARKER_FILE)) {
+        fs.unlinkSync(STARTUP_MARKER_FILE)
+        console.log('🗑️  已清理启动标记文件')
+      }
     } catch (error) {
-      console.error('清理PID文件失败:', error.message)
+      console.error('清理文件失败:', error.message)
     }
   }
 
@@ -80,34 +86,139 @@ class ServiceManager {
 
     console.log('🚀 启动 Claude Relay Service...')
 
+    // 🔥 清理旧的启动标记文件
+    if (fs.existsSync(STARTUP_MARKER_FILE)) {
+      try {
+        fs.unlinkSync(STARTUP_MARKER_FILE)
+      } catch (error) {
+        console.warn('⚠️  清理旧启动标记失败:', error.message)
+      }
+    }
+
     if (daemon) {
-      // 后台运行模式 - 使用nohup实现真正的后台运行
-      const { exec: execChild } = require('child_process')
+      // 后台运行模式（跨平台）：使用detached spawn并将输出重定向到日志文件
+      try {
+        // 以追加方式打开日志文件句柄
+        const outFd = fs.openSync(LOG_FILE, 'a')
+        const errFd = fs.openSync(ERROR_LOG_FILE, 'a')
 
-      const command = `nohup node "${APP_FILE}" > "${LOG_FILE}" 2> "${ERROR_LOG_FILE}" & echo $!`
+        const child = spawn('node', [APP_FILE], {
+          cwd: path.join(__dirname, '..'),
+          env: process.env,
+          detached: true,
+          stdio: ['ignore', outFd, errFd]
+        })
 
-      execChild(command, (error, stdout) => {
-        if (error) {
-          console.error('❌ 后台启动失败:', error.message)
-          return
-        }
+        // 使子进程在父进程退出后继续存活
+        child.unref()
 
-        const pid = parseInt(stdout.trim())
-        if (pid && !isNaN(pid)) {
-          this.writePid(pid)
-          console.log(`🔄 服务已在后台启动 (PID: ${pid})`)
-          console.log(`📝 日志文件: ${LOG_FILE}`)
-          console.log(`❌ 错误日志: ${ERROR_LOG_FILE}`)
-          console.log('✅ 终端现在可以安全关闭')
-        } else {
-          console.error('❌ 无法获取进程ID')
-        }
-      })
+        console.log(`🔄 服务已在后台启动 (PID: ${child.pid})`)
+        this.writePid(child.pid)
+        console.log(`📝 日志文件: ${LOG_FILE}`)
+        console.log(`❌ 错误日志: ${ERROR_LOG_FILE}`)
 
-      // 给exec一点时间执行
-      setTimeout(() => {
-        process.exit(0)
-      }, 1000)
+        // 等待服务启动并检查状态
+        console.log('⏳ 等待服务启动...')
+
+        let checkCount = 0
+        const maxChecks = 30 // 🔥 增加检查次数到30次（6秒）
+        const checkInterval = setInterval(() => {
+          checkCount++
+
+          // 检查进程是否还在运行
+          if (!this.isProcessRunning(child.pid)) {
+            clearInterval(checkInterval)
+            console.log('❌ 服务启动失败，进程已退出')
+            console.log('📄 查看错误日志:')
+            console.log(`   tail -n 50 ${ERROR_LOG_FILE}`)
+            console.log('📄 或查看服务日志:')
+            console.log(`   tail -n 50 ${LOG_FILE}`)
+            this.removePidFile()
+            process.exit(1)
+          }
+
+          // 🔥 优先检查启动标记文件（更可靠）
+          if (fs.existsSync(STARTUP_MARKER_FILE)) {
+            try {
+              const markerData = JSON.parse(fs.readFileSync(STARTUP_MARKER_FILE, 'utf8'))
+              if (markerData.pid === child.pid) {
+                clearInterval(checkInterval)
+                console.log('✅ 服务启动成功！')
+                console.log(`✅ 服务运行在端口: ${markerData.port}`)
+                console.log('✅ 终端现在可以安全关闭')
+                console.log('\n💡 查看实时日志:')
+                console.log(`   npm run service:logs:follow`)
+                console.log('💡 查看服务状态:')
+                console.log(`   npm run service:status`)
+                process.exit(0)
+              }
+            } catch (error) {
+              // 标记文件可能还没完全写入，继续等待
+            }
+          }
+
+          // 🔥 备用检查：检查日志文件中的启动标志
+          try {
+            if (fs.existsSync(LOG_FILE)) {
+              const logContent = fs.readFileSync(LOG_FILE, 'utf8')
+              const recentLog = logContent.split('\n').slice(-30).join('\n')
+
+              // 检查是否有启动成功的标志
+              if (recentLog.includes('Claude Relay Service started on')) {
+                clearInterval(checkInterval)
+                console.log('✅ 服务启动成功！（通过日志检测）')
+                console.log('✅ 终端现在可以安全关闭')
+                console.log('\n💡 查看实时日志:')
+                console.log(`   npm run service:logs:follow`)
+                console.log('💡 查看服务状态:')
+                console.log(`   npm run service:status`)
+                process.exit(0)
+              }
+
+              // 检查是否有启动失败的标志
+              if (
+                recentLog.includes('Failed to start server') ||
+                recentLog.includes('Application initialization failed') ||
+                recentLog.includes('Failed to connect to Redis')
+              ) {
+                clearInterval(checkInterval)
+                console.log('❌ 服务启动失败，检测到错误')
+                console.log('\n📄 最近的错误日志:')
+                const errorLines = recentLog.split('\n').filter((line) => line.includes('ERROR'))
+                errorLines.slice(-5).forEach((line) => console.log(`   ${line}`))
+                console.log('\n📄 查看完整日志:')
+                console.log(`   tail -n 50 ${LOG_FILE}`)
+                console.log(`   tail -n 50 ${ERROR_LOG_FILE}`)
+                this.removePidFile()
+                // 终止子进程
+                try {
+                  process.kill(child.pid, 'SIGTERM')
+                } catch (e) {
+                  // 进程可能已经退出
+                }
+                process.exit(1)
+              }
+            }
+          } catch (error) {
+            // 日志文件可能还没创建，继续等待
+          }
+
+          if (checkCount >= maxChecks) {
+            clearInterval(checkInterval)
+            console.log('⚠️  服务启动超时（6秒内未检测到启动完成）')
+            console.log('⚠️  服务可能仍在后台启动中，请稍后检查状态')
+            console.log('\n💡 查看服务状态:')
+            console.log(`   npm run service:status`)
+            console.log('💡 查看日志:')
+            console.log(`   tail -f ${LOG_FILE}`)
+            process.exit(0)
+          }
+        }, 200)
+      } catch (error) {
+        console.error('❌ 后台启动失败:', error.message)
+        this.removePidFile()
+        process.exit(1)
+      }
     } else {
       // 前台运行模式
       const child = spawn('node', [APP_FILE], {
@@ -213,16 +324,31 @@ class ServiceManager {
     return status.running
   }
 
-  logs(lines = 50) {
-    console.log(`📖 最近 ${lines} 行日志:\n`)
+  logs(lines = 50, follow = false) {
+    if (follow) {
+      console.log(`📖 实时查看日志 (Ctrl+C 退出):\n`)
+      // 使用 tail -f 实时查看日志
+      const tailProcess = spawn('tail', ['-f', LOG_FILE], {
+        stdio: 'inherit'
+      })
 
-    exec(`tail -n ${lines} ${LOG_FILE}`, (error, stdout) => {
-      if (error) {
-        console.error('读取日志失败:', error.message)
-        return
-      }
-      console.log(stdout)
-    })
+      // 处理 Ctrl+C
+      process.on('SIGINT', () => {
+        tailProcess.kill()
+        console.log('\n\n✅ 已停止日志查看')
+        process.exit(0)
+      })
+    } else {
+      console.log(`📖 最近 ${lines} 行日志:\n`)
+
+      exec(`tail -n ${lines} ${LOG_FILE}`, (error, stdout) => {
+        if (error) {
+          console.error('读取日志失败:', error.message)
+          return
+        }
+        console.log(stdout)
+      })
+    }
   }
 
   help() {
@@ -236,12 +362,12 @@ class ServiceManager {
   npm run service <command> -- [options]
 
 命令:
-  start [-d|--daemon]   启动服务 (-d: 后台运行)
-  stop                  停止服务
-  restart [-d|--daemon] 重启服务 (-d: 后台运行)
-  status                查看服务状态
-  logs [lines]          查看日志 (默认50行)
-  help                  显示帮助信息
+  start [-d|--daemon]        启动服务 (-d: 后台运行)
+  stop                       停止服务
+  restart [-d|--daemon]      重启服务 (-d: 后台运行)
+  status                     查看服务状态
+  logs [lines] [-f|--follow] 查看日志 (默认50行, -f: 实时查看)
+  help                       显示帮助信息
 
 命令缩写:
   s, start              启动服务
@@ -262,6 +388,8 @@ class ServiceManager {
   npm run service status             # 查看状态
   npm run service logs               # 查看日志
   npm run service -- logs 100        # 查看最近100行日志
+  npm run service:logs:follow        # 实时查看日志（推荐快捷方式）
+  npm run service -- logs -f         # 实时查看日志
 
 推荐的快捷方式（无需 -- 分隔符）:
   npm run service:start:d            # 等同于 npm run service -- start -d
@@ -309,8 +437,12 @@ function main() {
     case 'logs':
     case 'log':
     case 'l': {
-      const lines = parseInt(args[1]) || 50
-      manager.logs(lines)
+      const follow = args.includes('-f') || args.includes('--follow')
+      const linesArg = args.find(
+        (arg) => !arg.startsWith('-') && arg !== 'logs' && arg !== 'log' && arg !== 'l'
+      )
+      const lines = parseInt(linesArg) || 50
+      manager.logs(lines, follow)
       break
     }
     case 'help':

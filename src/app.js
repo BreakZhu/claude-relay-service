@@ -49,8 +49,10 @@ class Application {
     try {
       // 🔗 连接Redis
       logger.info('🔄 Connecting to Redis...')
+      await logger.flush() // 🔥 立即刷新日志到文件
       await redis.connect()
       logger.success('✅ Redis connected successfully')
+      await logger.flush() // 🔥 立即刷新日志到文件
 
       // 💰 初始化价格服务
       logger.info('🔄 Initializing pricing service...')
@@ -376,8 +378,10 @@ class Application {
       this.app.use(errorHandler)
 
       logger.success('✅ Application initialized successfully')
+      await logger.flush() // 🔥 刷新日志，确保初始化成功信息被记录
     } catch (error) {
       logger.error('💥 Application initialization failed:', error)
+      await logger.flush() // 🔥 刷新日志，确保错误信息被记录
       throw error
     }
   }
@@ -462,7 +466,7 @@ class Application {
     try {
       await this.initialize()
 
-      this.server = this.app.listen(config.server.port, config.server.host, () => {
+      this.server = this.app.listen(config.server.port, config.server.host, async () => {
         logger.start(
           `🚀 Claude Relay Service started on ${config.server.host}:${config.server.port}`
         )
@@ -475,6 +479,26 @@ class Application {
         logger.info(`⚙️  Admin API: http://${config.server.host}:${config.server.port}/admin`)
         logger.info(`🏥 Health check: http://${config.server.host}:${config.server.port}/health`)
         logger.info(`📊 Metrics: http://${config.server.host}:${config.server.port}/metrics`)
+
+        // 🔥 立即刷新日志到文件（对daemon模式至关重要）
+        await logger.flush()
+
+        // 🔥 创建启动完成标记文件（供manage.js检测）
+        try {
+          const startupMarkerPath = path.join(__dirname, '..', '.startup-ready')
+          fs.writeFileSync(
+            startupMarkerPath,
+            JSON.stringify({
+              pid: process.pid,
+              startTime: new Date().toISOString(),
+              port: config.server.port,
+              host: config.server.host
+            })
+          )
+          logger.info(`✅ Startup marker created at ${startupMarkerPath}`)
+        } catch (err) {
+          logger.warn('⚠️  Failed to create startup marker:', err.message)
+        }
       })
 
       const serverTimeout = 600000 // 默认10分钟
@@ -489,6 +513,7 @@ class Application {
       this.setupGracefulShutdown()
     } catch (error) {
       logger.error('💥 Failed to start server:', error)
+      await logger.flush() // 🔥 确保错误日志被写入
       process.exit(1)
     }
   }

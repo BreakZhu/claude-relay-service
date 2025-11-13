@@ -152,7 +152,9 @@ const createRotateTransport = (filename, level = null) => {
     maxSize: config.logging.maxSize,
     maxFiles: config.logging.maxFiles,
     auditFile: path.join(config.logging.dirname, `.${filename.replace('%DATE%', 'audit')}.json`),
-    format: logFormat
+    format: logFormat,
+    // 🔥 关键修复：禁用缓冲，立即写入文件（特别是daemon模式下）
+    options: { flags: 'a' } // 追加模式，不缓冲
   })
 
   if (level) {
@@ -373,6 +375,41 @@ logger.healthCheck = () => {
     return { healthy: true, timestamp: new Date().toISOString() }
   } catch (error) {
     return { healthy: false, error: error.message, timestamp: new Date().toISOString() }
+  }
+}
+
+// 🔥 强制刷新所有日志传输（特别用于daemon模式确保日志写入）
+logger.flush = async () => {
+  const flushPromises = []
+
+  // 获取所有 transport
+  const transports = logger.transports.concat([
+    ...(logger.exceptions?.handlers || []),
+    ...(logger.rejections?.handlers || [])
+  ])
+
+  for (const transport of transports) {
+    // Winston DailyRotateFile 和 File transports 有 _stream 属性
+    if (transport._stream && typeof transport._stream.write === 'function') {
+      flushPromises.push(
+        new Promise((resolve) => {
+          // 如果流有 drain 事件，等待它
+          if (transport._stream.writableLength === 0) {
+            resolve()
+          } else {
+            transport._stream.once('drain', resolve)
+            // 超时保护
+            setTimeout(resolve, 100)
+          }
+        })
+      )
+    }
+  }
+
+  try {
+    await Promise.all(flushPromises)
+  } catch (error) {
+    console.error('Failed to flush logger:', error)
   }
 }
 
