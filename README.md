@@ -323,7 +323,7 @@ docker-compose.yml 已包含：
 1) 登录 ACR（PowerShell）：
 
 ```powershell
-docker login acr-blink-registry.cn-beijing.cr.aliyuncs.com -u 北京正和岛
+docker login acr-blink-registry.cn-beijing.cr.aliyuncs.com -u xxx
 pwd 
 
 # 按提示输入密码或令牌，成功后显示 Login Succeeded
